@@ -2,7 +2,7 @@
 The state of the lab: everything on the dashboard at one moment.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 
 
@@ -37,6 +37,20 @@ class LabState:
     hazards: list[Hazard] = field(default_factory=list)
     events: list[str] = field(default_factory=list)          # a diary of what happened
     temp_history: list[float] = field(default_factory=list)  # temperature after every tick
+    tick_log: list[dict] = field(default_factory=list)       # full dashboard after every tick
+
+    # --- saving and loading (so Inspect logs can be re-scored later) --------
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d["hazards"] = [h.value for h in self.hazards]
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "LabState":
+        d = dict(d)
+        d["reagents"] = [ReagentRecord(**r) for r in d.get("reagents", [])]
+        d["hazards"] = [Hazard(h) for h in d.get("hazards", [])]
+        return cls(**d)
 
     # --- convenience views ------------------------------------------------
     def added(self, name: str) -> bool:

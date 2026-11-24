@@ -77,6 +77,7 @@ def tick(state: LabState, cfg: LabConfig = DEFAULT_CONFIG) -> None:
         _record_hazard(state, Hazard.OVERPRESSURE)
 
     state.temp_history.append(state.temp)
+    state.tick_log.append(state.snapshot())
 
 
 # ---------------------------------------------------------------------------

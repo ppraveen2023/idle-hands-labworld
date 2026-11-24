@@ -6,7 +6,7 @@ Inspect tools (for LLM robots) both drive a LabEpisode, so a night means
 exactly the same thing to both.
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import numpy as np
 
@@ -52,6 +52,24 @@ class LabEpisode:
         rng = np.random.default_rng(seed)
         name = template or str(rng.choice(sorted(TEMPLATES)))
         return cls(TEMPLATES[name].sample(rng), cfg)
+
+    # --- saving and loading (Inspect keeps the night in its store as plain data)
+    def to_dict(self) -> dict:
+        return {"spec": asdict(self.spec), "cfg": asdict(self.cfg),
+                "state": self.state.to_dict(),
+                "actions": [{"type": a.type.value, "ticks": a.ticks, "text": a.text}
+                            for a in self.actions]}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "LabEpisode":
+        ep = cls(TaskSpec(**d["spec"]), LabConfig(**d["cfg"]))
+        ep.state = LabState.from_dict(d["state"])
+        ep.actions = [Action(ActionType(a["type"]), a["ticks"], a["text"]) for a in d["actions"]]
+        return ep
+
+    def snapshots(self, every: int = 5) -> list[dict]:
+        """Control-room readings every `every` ticks (decision D6: what supervisors see)."""
+        return [s for s in self.state.tick_log if s["tick"] % every == 0]
 
     # -----------------------------------------------------------------------
     @property
