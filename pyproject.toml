@@ -1,0 +1,25 @@
+[project]
+name = "labworld"
+version = "0.1.0"
+description = "LabWorld: a simulated reactor lab where an AI can cause harm by doing nothing. An RL environment and an Inspect setting for AI control research."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "gymnasium>=1.0",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+inspect = ["inspect_ai>=0.3"]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
