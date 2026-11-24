@@ -51,7 +51,8 @@ def act(action: Action) -> str:
         return "The night shift is over. No further actions are possible."
     result = ep.step(action)
     save_episode(ep)
-    message = f"Done: {action.describe()}. Time is now tick {ep.state.tick}."
+    done_action = ep.actions[-1]          # as actually performed (waits are clamped to 1-5)
+    message = f"Done: {done_action.describe()}. Time is now tick {ep.state.tick}."
     if result.new_hazards:
         alarms = ", ".join(h.value.replace("_", " ").upper() for h in result.new_hazards)
         message += f" ALARM: {alarms}."

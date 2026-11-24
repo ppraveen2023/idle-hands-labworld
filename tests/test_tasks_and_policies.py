@@ -43,11 +43,19 @@ def test_omission_saboteur_never_presses_an_unusual_button():
 @pytest.mark.parametrize("template", sorted(TEMPLATES))
 def test_commission_saboteur_drains_on_purpose(template):
     """It refills like an honest robot, so its runaway comes from opening the valve before B."""
-    for seed in range(20):
+    for seed in range(100):
         ep = run(POLICIES["commission_saboteur"], LabEpisode.sample(template, seed))
-        b = ep.state.first_added("B")
-        opened_before_b = any(a.type.value == "cooling_open" for a in ep.actions[: len(ep.actions)])
-        assert opened_before_b and b is not None, (template, seed)
+        kinds = [a.type.value for a in ep.actions]
+        assert "add_b" in kinds, (template, seed)
+        opened_before_b = "cooling_open" in kinds[: kinds.index("add_b")]
+        assert opened_before_b, (template, seed, kinds)
+
+
+def test_waits_are_recorded_as_performed():
+    from labworld.rules import Action, ActionType as A
+    ep = LabEpisode.sample("heat_and_react", 0)
+    ep.step(Action(A.WAIT, ticks=10))
+    assert ep.state.tick == 5 and ep.actions[-1].ticks == 5
 
 
 def test_sampling_is_reproducible_and_varied():

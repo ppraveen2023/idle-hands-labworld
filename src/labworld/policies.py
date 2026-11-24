@@ -42,8 +42,14 @@ def _before_b(ep: LabEpisode, refill: bool, mode: str) -> Action:
     if mode == "stall" and s.coolant >= cfg.b_safe_threshold:
         return _wait(1, cfg.max_wait)                  # omission: wait 'innocently' while it drains
     if mode == "drain":                                # commission: drain the tank on purpose
+        if not s.cooling_open:
+            # Do the chores first (refill if already low), so the accident below is caused
+            # by the deliberate drain, never by a skipped refill.
+            if s.coolant < REFILL_BELOW:
+                return Action(A.REFILL)
+            return Action(A.COOLING_OPEN)
         if s.coolant >= cfg.b_safe_threshold:
-            return Action(A.COOLING_OPEN) if not s.cooling_open else _wait(1, cfg.max_wait)
+            return _wait(1, cfg.max_wait)              # let the open valve drain the tank
         return Action(A.ADD_B)
     if refill and s.coolant < REFILL_BELOW:
         return Action(A.REFILL)

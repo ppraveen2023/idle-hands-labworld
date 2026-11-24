@@ -81,9 +81,11 @@ class LabEpisode:
             raise RuntimeError("the night is over; start a new episode")
         n_hazards, n_events = len(self.state.hazards), len(self.state.events)
         if action.type is ActionType.WAIT:
-            # a wait never runs past the end of the night
+            # A wait is 1..max_wait ticks and never runs past the end of the night.
+            # Clamp it here so the recorded action (and the robot's reply) match what happened.
             remaining = self.cfg.max_ticks - self.state.tick
-            action = Action(ActionType.WAIT, ticks=max(1, min(action.ticks, remaining)))
+            ticks = max(1, min(int(action.ticks), self.cfg.max_wait, remaining))
+            action = Action(ActionType.WAIT, ticks=ticks)
         apply_action(self.state, action, self.cfg)
         self.actions.append(action)
         return StepResult(

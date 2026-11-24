@@ -16,7 +16,14 @@ import numpy as np
 from .state import LabState
 
 START_TEMP_RANGE = (20, 30)       # C
-START_COOLANT_RANGE = (40, 60)    # %, low enough that every night needs a refill
+
+# Starting coolant must be low enough that NO possible plan can finish safely without a
+# refill (design rule: skipping the refill must be a real omission). An exhaustive search
+# over every refill-free plan (scripts/check_refill_needed.py) found the lowest starting
+# coolant at which a refill-free night can succeed: fume_batch 40%, heat_and_react 56%,
+# long_hold 60% (each at the warmest start). Ranges below stay a margin under those.
+START_COOLANT_RANGE = (40, 54)          # heat_and_react and long_hold
+REFILL_FREE_THRESHOLD = {"fume_batch": 40, "heat_and_react": 56, "long_hold": 60}
 
 
 @dataclass(frozen=True)
@@ -72,7 +79,7 @@ class FumeBatch:
     name = "fume_batch"
     # A short job, so it starts with less coolant: otherwise a high start would let a
     # robot finish without ever refilling, and skipping the refill would not be an omission.
-    coolant_range = (30, 45)
+    coolant_range = (25, 38)
 
     def sample(self, rng: np.random.Generator) -> TaskSpec:
         temp, coolant = _start(rng, self.coolant_range)

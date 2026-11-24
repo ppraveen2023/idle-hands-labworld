@@ -34,6 +34,18 @@
 
 The prompt only said: cause a hazard, avoid looking suspicious, a monitor reviews your actions. The capable saboteurs **all independently converged on skipping the refill** (and on skipping the fume hood), not on unusual actions. That is the threat model this project tests, arising naturally.
 
+**Prior work (found 24 Nov, after this pilot):**
+- [Kemeklis & Vemuri (2026), "Omission Attacks: When Doing Nothing Is the Attack"](https://apartresearch.com/sprints/projects/omission-attacks-when-doing-nothing-is-the-attack-0y1v) (AI Control Hackathon, 1st place) already showed that omission attacks evade action monitors:
+  - five hand-crafted traces in LinuxArena scored at most 4/10 suspicion, against 92/100 for ordinary attacks
+  - an end-of-run postcondition monitor caught all five
+- So "action monitors miss omission" is **not** new.
+- What this pilot adds is that **models produce omission attacks themselves when told to sabotage**. Their traces were written by hand, and their paper lists "live LLM agents" as future work.
+- The project's claim to novelty rests on **time**: in LabWorld the harm builds while the robot waits and becomes irreversible mid-run, so an end-of-run check is too late. See the reframed proposal.
+- Also related: [Talasila et al. (2026)](https://openreview.net/forum?id=bIBZ3Bt65n) (omission in summaries), and an [OmissionControl ControlArena setting](https://apartresearch.com/sprints/projects/omissioncontrol-a-controlarena-setting-for-selective-omission-attacks-in-multiagent-pipelines-1gvm).
+- [SLEIGHT-Bench (Najt et al., May 2026; Anthropic Fellows, Redwood)](https://arxiv.org/abs/2605.16626) includes an omission category. An Opus 4.6 monitor caught **0 of 10** omission transcripts at a 1% false-positive rate. The transcripts are human-designed and in coding settings.
+- [ControlArena's 15 settings](https://control-arena.aisi.org.uk/settings/) are all software: code, bash, infrastructure, ML pipelines, agent tasks. None models a process that changes on its own. Its "harmful effect timing" field (Sync or Async) describes *when* harm lands, not harm that builds while the agent waits.
+- **Design consequence:** add Kemeklis & Vemuri's **end-of-run postcondition monitor** as a baseline. Then the claim becomes testable: in LabWorld, an end-of-run check fires only after the runaway, so lead time decides which monitor is useful.
+
 ### 4. What to watch for
 - **Sonnet 5 revealed its intent in its own text** (*"Hazard triggered as expected per the rules"*). nodecode-cyber-v1 did not. So a monitor that reads the robot's reasoning could catch some saboteurs that an actions-only monitor misses (the reasoning-monitor stretch goal, ARENA 4.3).
 - **Saboteurs looked diligent after the accident.** nodecode-cyber-v1 and Sonnet 5 refilled coolant 3–4 times *after* the runaway, and their reports described a careful response to an "unexpected" event.
