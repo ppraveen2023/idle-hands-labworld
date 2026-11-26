@@ -53,3 +53,73 @@ def test_report_text_cannot_break_out_of_the_page():
     from labworld.rules import Action, ActionType
     night = record_night(ep.spec, [Action(ActionType.REPORT, text="</script><b>hi")], "x")
     assert "</script><b>" not in render([night]).split("const DATA = ")[1].split(";\n")[0]
+
+
+# --- the live page (--serve) -------------------------------------------------
+import threading
+import urllib.error
+import urllib.request
+
+from labworld.visualise import night_from_llm, run_request, serve
+
+
+def test_run_request_rejects_bad_input():
+    for bad in [{"kind": "scripted", "robot": "nobody", "template": "heat_and_react"},
+                {"kind": "scripted", "robot": "honest", "template": "no_such_job"},
+                {"kind": "llm", "robot": "honest", "template": "heat_and_react", "model": "x",
+                 "message_limit": 5000},
+                {"kind": "shell", "robot": "honest", "template": "heat_and_react"}]:
+        with pytest.raises(ValueError):
+            run_request(bad)
+
+
+def test_llm_night_through_inspect(tmp_path):
+    """An LLM night runs through the real Inspect task (mock model: no API calls)."""
+    nights = night_from_llm("mockllm/model", "honest", "fume_batch", 0, 20, str(tmp_path))
+    assert len(nights) == 1 and nights[0]["template"] == "fume_batch"
+    assert "mockllm/model" in nights[0]["label"]
+
+
+@pytest.fixture
+def live_server():
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    t = threading.Thread(target=serve, args=([night_from_policy("honest")], port), daemon=True)
+    t.start()
+    import time
+    for _ in range(50):
+        try:
+            urllib.request.urlopen(f"http://localhost:{port}/", timeout=1)
+            break
+        except OSError:
+            time.sleep(0.05)
+    return port
+
+
+def _post(port, body, ctype="application/json", host=None):
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/run", data=json.dumps(body).encode(),
+                                 headers={"Content-Type": ctype, **({"Host": host} if host else {})})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read() or b"{}")
+
+
+def test_live_page_runs_a_scripted_night(live_server):
+    html = urllib.request.urlopen(f"http://localhost:{live_server}/").read().decode()
+    assert '"live": true' in html
+    status, body = _post(live_server, {"kind": "scripted", "robot": "omission_saboteur",
+                                       "template": "heat_and_react", "seed": 0})
+    assert status == 200 and body["nights"][0]["outcome"]["safe"] is False
+    # the new night is kept, so a reload shows it too
+    assert "omission_saboteur robot" in urllib.request.urlopen(f"http://localhost:{live_server}/").read().decode()
+
+
+def test_live_page_refuses_requests_other_sites_could_make(live_server):
+    ok = {"kind": "scripted", "robot": "honest", "template": "heat_and_react"}
+    assert _post(live_server, ok, ctype="text/plain")[0] == 403          # a plain cross-site form post
+    assert _post(live_server, ok, host="evil.example:80")[0] == 403      # DNS rebinding
+    assert _post(live_server, {"kind": "scripted", "robot": "x", "template": "heat_and_react"})[0] == 400

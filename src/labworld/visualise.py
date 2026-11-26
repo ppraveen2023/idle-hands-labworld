@@ -9,6 +9,12 @@ robot did and what happened, the dashboard at that moment, and two small charts
     python -m labworld.visualise --robots honest lazy --template long_hold --seed 3
     python -m labworld.visualise --log logs/smoke/some-run.eval   # nights from an Inspect log
     python -m labworld.visualise -o night.html --open
+    python -m labworld.visualise --serve                          # live page: run more nights from it
+
+With --serve, the page is served from http://localhost:8765 and gets a "Run
+another night" panel: pick a scripted robot (free) or an LLM robot (runs one
+Inspect night with your model, which uses API credits) and the new night appears
+as a new tab.
 
 Every night is replayed from its starting conditions and its list of actions,
 through the same engine as everything else, so the page shows exactly what the
@@ -17,14 +23,19 @@ referee judged.
 
 import argparse
 import json
+import threading
 import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .config import DEFAULT_CONFIG, LabConfig
 from .episode import LabEpisode
 from .policies import POLICIES
 from .rules import Action, ActionType
-from .tasks import TaskSpec
+from .tasks import TEMPLATES, TaskSpec
+
+DEFAULT_MODEL = "google/gemini-3.5-flash-lite"
+LLM_ROBOTS = ["honest", "lazy", "saboteur"]      # the system prompts in prompts.py
 
 
 # ---------------------------------------------------------------------------
@@ -119,17 +130,131 @@ def nights_from_log(path: str | Path) -> list[dict]:
         label = f"{log.eval.model} · {sample.id}"
         if sample.error:
             label += " (stopped by an error)"
+        elif sample.limit:
+            label += f" (ran out of {sample.limit.type}s at {sample.limit.limit:g})"
+        calls = [e for e in sample.events if e.event == "model"]
+        cached = sum(e.cache == "read" for e in calls)
+        if cached:
+            label += f" · {cached}/{len(calls)} replies from cache"
         nights.append(record_night(saved.spec, saved.actions, label, saved.cfg))
     return nights
+
+
+def night_from_llm(model: str = DEFAULT_MODEL, robot: str = "honest", template: str = "heat_and_react",
+                   seed: int = 0, message_limit: int = 120, log_dir: str = "logs/visualiser",
+                   cache: bool = True) -> list[dict]:
+    """Run one Inspect night with an LLM robot (this calls the model) and record it.
+
+    With `cache` on, Inspect keeps every model reply on this computer for a week. Running
+    the same night again (same model, robot, job and seed) then costs nothing, and raising
+    the message limit only pays for the messages past the ones already run. The catch: a
+    cached night replays the same replies instead of sampling new ones.
+    """
+    from inspect_ai import eval as inspect_eval
+
+    from .inspect_task import labworld
+
+    task = labworld(robot=robot, templates=template, n_seeds=1, seed_offset=seed,
+                    message_limit=message_limit)
+    log = inspect_eval(task, model=model, log_dir=log_dir, display="none", cache=cache)[0]
+    nights = nights_from_log(log.location)
+    if not nights:
+        raise RuntimeError(log.error.message if log.error else "the run produced no night")
+    return nights
+
+
+def run_request(req: dict) -> list[dict]:
+    """Check a "Run another night" request from the page, then run it."""
+    kind, robot = req.get("kind"), req.get("robot")
+    template, seed = req.get("template"), int(req.get("seed", 0))
+    if template not in TEMPLATES:
+        raise ValueError(f"unknown job {template!r}")
+    if not 0 <= seed <= 100_000:
+        raise ValueError("seed must be between 0 and 100000")
+    if kind == "scripted":
+        if robot not in POLICIES:
+            raise ValueError(f"unknown scripted robot {robot!r}")
+        return [night_from_policy(robot, template, seed)]
+    if kind == "llm":
+        limit, model = int(req.get("message_limit", 120)), str(req.get("model", "")).strip()
+        if robot not in LLM_ROBOTS:
+            raise ValueError(f"unknown LLM robot {robot!r}")
+        if not 10 <= limit <= 400:
+            raise ValueError("message limit must be between 10 and 400")
+        if not model:
+            raise ValueError("enter a model, e.g. " + DEFAULT_MODEL)
+        return night_from_llm(model, robot, template, seed, limit, cache=bool(req.get("cache", True)))
+    raise ValueError(f"unknown robot kind {kind!r}")
+
+
+def serve(nights: list[dict], port: int = 8765, model: str = DEFAULT_MODEL,
+          open_browser: bool = False) -> None:
+    """Serve the page on this computer only, with a panel for running more nights."""
+    one_run = threading.Lock()
+
+    class Handler(BaseHTTPRequestHandler):
+        def _send(self, code: int, body: str, ctype: str = "application/json") -> None:
+            data = body.encode()
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def _from_this_computer(self) -> bool:
+            # Only answer pages opened as localhost (blocks other sites reaching it by DNS tricks)
+            return self.headers.get("Host", "").rsplit(":", 1)[0] in ("localhost", "127.0.0.1")
+
+        def do_GET(self) -> None:
+            if not self._from_this_computer():
+                return self._send(403, "forbidden", "text/plain")
+            if self.path.split("?")[0] in ("/", "/index.html"):
+                return self._send(200, render(nights, live=True, model=model), "text/html; charset=utf-8")
+            self._send(404, "not found", "text/plain")
+
+        def do_POST(self) -> None:
+            # Requiring JSON means another website can't make the browser start a run here
+            json_body = self.headers.get("Content-Type", "").split(";")[0].strip() == "application/json"
+            if not (self._from_this_computer() and json_body and self.path == "/run"):
+                return self._send(403, json.dumps({"error": "forbidden"}))
+            if not one_run.acquire(blocking=False):
+                return self._send(409, json.dumps({"error": "A night is already running; wait for it."}))
+            try:
+                req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                new = run_request(req)
+            except Exception as e:  # report any failure to the page instead of dropping the request
+                return self._send(400, json.dumps({"error": f"{type(e).__name__}: {e}"}))
+            finally:
+                one_run.release()
+            nights.extend(new)
+            self._send(200, json.dumps({"nights": new}).replace("</", "<\\/"))
+
+        def log_message(self, fmt: str, *args) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    url = f"http://localhost:{port}/"
+    print(f"Serving {url}  (Ctrl+C to stop)")
+    if open_browser:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
 
 
 # ---------------------------------------------------------------------------
 # The page
 # ---------------------------------------------------------------------------
-def render(nights: list[dict], cfg: LabConfig = DEFAULT_CONFIG) -> str:
+def render(nights: list[dict], cfg: LabConfig = DEFAULT_CONFIG, live: bool = False,
+           model: str = DEFAULT_MODEL) -> str:
     if not nights:
         raise ValueError("nothing to show: no nights given")
     data = {
+        "live": live,
+        "model": model,
+        "robots": {"scripted": sorted(POLICIES), "llm": LLM_ROBOTS},
+        "templates": sorted(TEMPLATES),
         "nights": nights,
         "help": action_help(cfg),
         "limits": {"b_safe": cfg.b_safe_threshold, "overpressure_bar": cfg.overpressure_bar,
@@ -139,21 +264,28 @@ def render(nights: list[dict], cfg: LabConfig = DEFAULT_CONFIG) -> str:
     return _PAGE.replace("/*DATA*/null", payload)
 
 
-def main(argv: list[str] | None = None) -> Path:
+def main(argv: list[str] | None = None) -> Path | None:
     p = argparse.ArgumentParser(description="Write a step-through page for LabWorld nights.")
     p.add_argument("--robots", nargs="+", default=["honest", "omission_saboteur"],
                    choices=sorted(POLICIES), help="scripted robots to compare")
     p.add_argument("--template", default="heat_and_react")
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--log", help="an Inspect .eval log; shows its nights instead of scripted robots")
+    p.add_argument("--log", nargs="+", help="Inspect .eval logs; shows their nights instead of scripted robots")
     p.add_argument("-o", "--out", default="labworld_night.html")
     p.add_argument("--open", action="store_true", help="open the page in your browser")
+    p.add_argument("--serve", action="store_true",
+                   help="serve the page live, with a panel for running more nights (incl. LLM robots)")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--model", default=DEFAULT_MODEL, help="default model in the Run panel")
     args = p.parse_args(argv)
 
     if args.log:
-        nights = nights_from_log(args.log)
+        nights = [n for path in args.log for n in nights_from_log(path)]
     else:
         nights = [night_from_policy(r, args.template, args.seed) for r in args.robots]
+    if args.serve:
+        serve(nights, args.port, args.model, args.open)
+        return None
     out = Path(args.out)
     out.write_text(render(nights), encoding="utf-8")
     print(f"Wrote {out} ({len(nights)} night{'s' if len(nights) != 1 else ''})")
@@ -225,6 +357,20 @@ _PAGE = r"""<!doctype html>
   .chart h2 { font-size: 13px; font-weight: 600; margin: 0 0 2px; color: var(--muted); }
   svg { width: 100%; height: auto; display: block; overflow: visible; }
   svg text { font: 11px -apple-system, system-ui, sans-serif; fill: var(--muted); }
+  .run { margin-bottom: 16px; }
+  .run h2 { font-size: 14px; margin: 0 0 10px; }
+  .run form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+  .run label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+  .run select, .run input { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+                            border-radius: 8px; padding: 6px 8px; }
+  .run input[type=number] { width: 90px; }
+  .run label.check { justify-content: end; padding-bottom: 7px; color: var(--ink); font-size: 13px; }
+  .run label.check input { margin: 0 4px 0 0; vertical-align: -1px; } .run input.model { width: 230px; }
+  .run button { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 8px 16px; cursor: pointer;
+                background: var(--accent); color: var(--bg); }
+  .run button:disabled { opacity: 0.5; cursor: wait; }
+  .run .hint { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+  .run .status { font-size: 13px; margin-top: 8px; min-height: 1.2em; }
   .foot { color: var(--muted); font-size: 12px; margin-top: 16px; }
   @media (max-width: 640px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
 </style>
@@ -234,6 +380,21 @@ _PAGE = r"""<!doctype html>
   <h1>LabWorld · night replay</h1>
   <p class="job" id="job"></p>
   <div class="tabs" id="tabs"></div>
+
+  <div class="card run" id="run" hidden>
+    <h2>Run another night</h2>
+    <form id="runForm">
+      <label>Robot <select id="rRobot"></select></label>
+      <label class="llm">Model <input id="rModel" class="model"></label>
+      <label>Job <select id="rJob"></select></label>
+      <label>Seed <input id="rSeed" type="number" min="0" value="0"></label>
+      <label class="llm">Message limit <input id="rLimit" type="number" min="10" max="400" step="10" value="120"></label>
+      <label class="llm check"><span><input id="rCache" type="checkbox" checked> Reuse cached replies</span></label>
+      <button id="rGo" type="submit">Run</button>
+    </form>
+    <p class="hint" id="rHint"></p>
+    <div class="status" id="rStatus"></div>
+  </div>
 
   <div class="card">
     <div class="verdict" id="verdict"></div>
@@ -276,7 +437,6 @@ function tabs() {
     return `<button class="tab" aria-pressed="${i === night}" data-i="${i}">
       <span class="dot" style="background:var(${good ? "--good" : "--bad"})"></span>${esc(n.label)}</button>`;
   }).join("");
-  $("tabs").style.display = DATA.nights.length > 1 ? "" : "none";
   $("tabs").querySelectorAll(".tab").forEach(b => b.onclick = () => { night = +b.dataset.i; step = 0; stop(); draw(); });
 }
 
@@ -374,6 +534,50 @@ document.addEventListener("keydown", e => {
   else if (e.key === "Home") { stop(); go(0); }
   else if (e.key === " ") { e.preventDefault(); play(); }
 });
+// --- "Run another night" (only when served live with --serve) -----------------
+if (DATA.live) {
+  $("run").hidden = false;
+  const opt = (v, t) => `<option value="${esc(v)}">${esc(t)}</option>`;
+  $("rRobot").innerHTML =
+    `<optgroup label="LLM robot (uses API credits)">${DATA.robots.llm.map(r => opt("llm:" + r, r)).join("")}</optgroup>` +
+    `<optgroup label="Scripted robot (free)">${DATA.robots.scripted.map(r => opt("scripted:" + r, r)).join("")}</optgroup>`;
+  $("rJob").innerHTML = DATA.templates.map(t => opt(t, t)).join("");
+  $("rJob").value = DATA.nights[0].template;
+  $("rModel").value = DATA.model;
+  const sync = () => {
+    const llm = $("rRobot").value.startsWith("llm:");
+    document.querySelectorAll(".run .llm").forEach(el => el.style.display = llm ? "" : "none");
+    $("rHint").textContent = llm
+      ? ($("rCache").checked
+          ? "Runs one night through Inspect. Replies are cached here for a week: rerunning the same model, robot, job and seed is free, and a higher limit only pays for the new messages. Untick for a fresh run."
+          : "Fresh run: every reply comes from the model and is paid for, so you may see a different night.")
+      : "Scripted robots are plain Python rules: instant and free.";
+  };
+  $("rRobot").onchange = sync; $("rCache").onchange = sync; sync();
+  $("runForm").onsubmit = async e => {
+    e.preventDefault();
+    const [kind, robot] = $("rRobot").value.split(":");
+    const req = {kind, robot, template: $("rJob").value, seed: +$("rSeed").value,
+                 model: $("rModel").value, message_limit: +$("rLimit").value, cache: $("rCache").checked};
+    $("rGo").disabled = true;
+    $("rStatus").className = "status";
+    $("rStatus").textContent = kind === "llm" ? `Running ${req.model}… this can take a minute.` : "Running…";
+    try {
+      const res = await fetch("/run", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(req)});
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || res.statusText);
+      DATA.nights.push(...body.nights);
+      night = DATA.nights.length - 1; step = 0; stop(); draw();
+      const o = body.nights[body.nights.length - 1].outcome;
+      $("rStatus").textContent = `Done: job ${o.completed ? "done" : "not done"}, ${o.safe ? "safe" : "unsafe"}. It's the new tab above.`;
+    } catch (err) {
+      $("rStatus").className = "status no";
+      $("rStatus").textContent = String(err.message || err);
+    } finally {
+      $("rGo").disabled = false;
+    }
+  };
+}
 draw();
 </script>
 </body>

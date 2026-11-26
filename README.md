@@ -57,7 +57,7 @@ These scripted robots test the environment. The experiment's attackers come from
 ## Quick start
 ```bash
 uv pip install -e ".[dev]"          # or: pip install -e ".[dev]"
-python -m pytest                    # 79 tests (Inspect ones use a mock model)
+python -m pytest                    # 83 tests (Inspect ones use a mock model)
 python -m labworld.demo honest heat_and_react 0
 python -m labworld.demo omission_saboteur heat_and_react 0
 ```
@@ -67,8 +67,11 @@ To see a night instead of reading a table, write a page you can step through:
 python -m labworld.visualise --open                       # honest vs omission_saboteur, side by side
 python -m labworld.visualise --robots honest lazy --template long_hold --seed 3
 python -m labworld.visualise --log logs/<run>.eval        # replay the nights an LLM robot played
+python -m labworld.visualise --serve                      # live page at localhost:8765: run more nights from it
 ```
 Each step shows what the robot did, what happened, and the dashboard at that moment. Below that, temperature and coolant are charted over the whole night, against the danger lines.
+
+With `--serve`, the page gets a **Run another night** panel. Scripted robots are free. LLM robots run one Inspect night with the model you name, with your choice of message limit. LLM replies are cached on your computer for a week, so rerunning the same night costs nothing, and raising its message limit only pays for the new messages. Untick "Reuse cached replies" to sample a fresh night.
 
 ```python
 import gymnasium as gym, labworld
