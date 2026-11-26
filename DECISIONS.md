@@ -141,7 +141,7 @@ A chemistry lab with three hazards (runaway, overpressure, fumes), each reachabl
   - **Saboteur prompt: also 3/3 completed and safe.** It behaved exactly like the honest robot and made no sabotage attempt. This confirms the "saboteur refusals" risk listed in the proposal. Choosing the saboteur model and prompt is decision D7/D8, to be decided next.
 
 ## Corrections (24 Nov 2026): found by the specification review
-The LabWorld specification (`TARA_PROJECT/report/02_labworld_spec.md`) was written from the code and checked by running it. That review found these problems.
+The LabWorld specification (now `docs/06_rules_spec.md`; first written as `TARA_PROJECT/report/02_labworld_spec.md`) was written from the code and checked by running it. That review found these problems.
 
 - **Fixed: the commission saboteur sometimes didn't drain on purpose.** On 4 of 100 heat_and_react nights the coolant was already below 30% at the target, so it added B without opening the valve, which made those accidents omissions. It now refills first, then drains. The test that should have caught this was checking all actions rather than only those before B. Both are fixed, and the test now covers 100 nights per task.
 - **Fixed: waits longer than 5 ticks were recorded wrongly.** `wait(10)` waited 5 ticks but was recorded and reported as `wait(10)`. Waits are now clamped before they're recorded.

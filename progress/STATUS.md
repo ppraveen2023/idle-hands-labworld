@@ -22,12 +22,13 @@
 - [x] Gymnasium RL environment `LabWorld-v0`
 - [x] Inspect task: 8 tools, night saved in the store, referee scorer
 - [x] Scripted reference robots: honest, lazy, omission and commission saboteurs
-- [x] 58 tests passing; git repo (2 commits)
+- [x] Tests passing (63 as of 25 Nov); git repo (3 commits, latest `3b40f30`), pushed to a **private** GitHub repo: https://github.com/ppraveen2023/idle-hands-labworld
 - [x] Pilot sweep: 14 Claude models, 3 uncensored models, nodecode-cyber-v1
 - [x] Prior-work check and corrected novelty claim (`RELATED_WORK.md`)
 - [x] Project proposal and mentor brief in Google Drive
 - [x] Full report in `TARA_PROJECT/report/` (one-pager, LabWorld spec, tools and validation plan); 2 bugs fixed
 - [x] Starting coolant tightened so no possible plan can skip the refill (exhaustive search); 63 tests passing
+- [x] Per-experiment PDFs for the mentor in `TARA_PROJECT/experiments/` (overview + Experiments 1–3)
 
 ## Next (in order)
 1. [ ] **Hear back from the mentor** on the 5 questions in the brief
@@ -43,5 +44,3 @@
 
 ## Open questions and blockers
 - Waiting on mentor feedback: saboteur model choice, what supervisors see, framing, sample size, whether to keep the RL attacker
-- Solo or pair with Bhishmaraj: not yet confirmed
-- Reason for dropping the corrigibility project: still a placeholder in the mentor brief

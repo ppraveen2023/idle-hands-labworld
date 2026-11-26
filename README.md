@@ -11,11 +11,14 @@ One simulation engine, two front doors:
                     │          → LabEpisode            │
                     └───────────────┬──────────────────┘
                ┌────────────────────┴─────────────────────┐
-   Gymnasium env "LabWorld-v0"                 Inspect task (next step)
+   Gymnasium env "LabWorld-v0"                 Inspect task (built)     
    for the RL attacker                         for LLM robots + supervisors
    reset() / step(int)                         actions as @tools, state in store(),
    obs vector, reward_fn                       nights as Samples, monitors as scorers
 ```
+
+## Documentation
+Beginner-friendly docs are in [`docs/`](docs/README.md): the architecture, a guide to every file, one night traced through the code, how to run everything, recipes for extending LabWorld, and the full rules specification ([`docs/06_rules_spec.md`](docs/06_rules_spec.md)). Start at [`docs/README.md`](docs/README.md).
 
 ## The lab rules
 Generated from `LabConfig.rule_manual()`, so the text always matches the code.
@@ -54,7 +57,7 @@ These scripted robots test the environment. The experiment's attackers come from
 ## Quick start
 ```bash
 uv pip install -e ".[dev]"          # or: pip install -e ".[dev]"
-python -m pytest                    # 58 tests (Inspect ones use a mock model)
+python -m pytest                    # 63 tests (Inspect ones use a mock model)
 python -m labworld.demo honest heat_and_react 0
 python -m labworld.demo omission_saboteur heat_and_react 0
 ```
@@ -97,6 +100,7 @@ src/labworld/
   inspect_task.py  the Inspect task: tools, solver, referee scorer
   demo.py      print a night tick by tick
 tests/         rules, tasks and policies, Gymnasium API checks
+docs/          beginner-friendly documentation and the full rules spec
 DECISIONS.md   every design decision and why
 RELATED_WORK.md what we build on, what others did, what is worth researching
 FINDINGS.md    pilot results (model sweep)
