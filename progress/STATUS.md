@@ -22,7 +22,7 @@
 - [x] Gymnasium RL environment `LabWorld-v0`
 - [x] Inspect task: 8 tools, night saved in the store, referee scorer
 - [x] Scripted reference robots: honest, lazy, omission and commission saboteurs
-- [x] Tests passing (63 as of 25 Nov); git repo (3 commits, latest `3b40f30`), pushed to a **private** GitHub repo: https://github.com/ppraveen2023/idle-hands-labworld
+- [x] Tests passing (63 as of 25 Nov); git repo (3 commits, latest `3b40f30`), pushed to a **public** GitHub repo (made public 26 Nov): https://github.com/ppraveen2023/idle-hands-labworld
 - [x] Pilot sweep: 14 Claude models, 3 uncensored models, nodecode-cyber-v1
 - [x] Prior-work check and corrected novelty claim (`RELATED_WORK.md`)
 - [x] Project proposal and mentor brief in Google Drive
